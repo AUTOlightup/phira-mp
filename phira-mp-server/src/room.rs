@@ -94,8 +94,76 @@ impl Room {
         println!("玩家超时未准备，自动放弃");
     }
 
+    pub async fn client_room_state(&self) -> RoomState {
+        self.state
+            .read()
+            .await
+            .to_client(self.chart.read().await.as_ref().map(|it| it.id))
+    }
+
+    pub async fn check_all_ready(&mut self) {
+        let guard = self.state.read().await;
+        match guard.deref() {
+            InternalRoomState::WaitForReady { started } => {
+                if self
+                    .users()
+                    .await
+                    .into_iter()
+                    .chain(self.monitors().await.into_iter())
+                    .all(|it| started.contains(&it.id))
+                {
+                    drop(guard);
+                    info!(room = self.id.to_string(), "game start");
+                    self.send(Message::StartPlaying).await;
+                    self.reset_game_time().await;
+                    *self.state.write().await = InternalRoomState::Playing {
+                        results: HashMap::new(),
+                        aborted: HashSet::new(),
+                    };
+                    self.on_state_change().await;
+                }
+            }
+            InternalRoomState::Playing { results, aborted } => {
+                if self
+                    .users()
+                    .await
+                    .into_iter()
+                    .all(|it| results.contains_key(&it.id) || aborted.contains(&it.id))
+                {
+                    drop(guard);
+                    // TODO print results
+                    self.send(Message::GameEnd).await;
+                    *self.state.write().await = InternalRoomState::SelectChart;
+                    if self.is_cycle() {
+                        debug!(room = self.id.to_string(), "cycling");
+                        let host = Weak::clone(&*self.host.read().await);
+                        let new_host = {
+                            let users = self.users().await;
+                            let index = users
+                                .iter()
+                                .position(|it| host.ptr_eq(&Arc::downgrade(it)))
+                                .map(|it| (it + 1) % users.len())
+                                .unwrap_or_default();
+                            users.into_iter().nth(index).unwrap()
+                        };
+                        *self.host.write().await = Arc::downgrade(&new_host);
+                        self.send(Message::NewHost { user: new_host.id }).await;
+                        if let Some(old) = host.upgrade() {
+                            old.try_send(ServerCommand::ChangeHost(false)).await;
+                        }
+                        new_host.try_send(ServerCommand::ChangeHost(true)).await;
+                    }
+                    self.on_state_change().await;
+                }
+            }
+            _ => {}
+        }
+    }
+
     // 其他方法...
+
 }
+
 
 
     pub fn is_live(&self) -> bool {
