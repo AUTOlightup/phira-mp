@@ -10,7 +10,7 @@ use std::{
         Arc, Weak,
     },
 };
-use tokio::sync::RwLock;
+use tokio::{sync::RwLock, time::{sleep, Duration}};
 use tracing::{debug, info};
 
 const ROOM_MAX_USERS: usize = 8;
@@ -50,6 +50,9 @@ pub struct Room {
     users: RwLock<Vec<Weak<User>>>,
     monitors: RwLock<Vec<Weak<User>>>,
     pub chart: RwLock<Option<Chart>>,
+
+    // 插入定时器字段
+    timer: Option<tokio::time::Sleep>, // 定时器字段
 }
 
 impl Room {
@@ -66,8 +69,34 @@ impl Room {
             users: vec![host].into(),
             monitors: Vec::new().into(),
             chart: RwLock::default(),
+
+            // 初始化定时器为None
+            timer: None,
         }
     }
+
+    pub async fn start_timer(&mut self) {
+        let duration = Duration::from_secs(60); // 设置超时时间为60秒
+        let timer = sleep(duration);
+
+        // 将定时器存储在 Room 结构体中
+        self.timer = Some(timer);
+
+        // 等待定时器完成
+        let _ = self.timer.as_mut().unwrap().await;
+        
+        // 处理超时事件
+        self.handle_timeout().await;
+    }
+
+    async fn handle_timeout(&mut self) {
+        // 处理超时事件，例如标记为放弃
+        println!("玩家超时未准备，自动放弃");
+    }
+
+    // 其他方法...
+}
+
 
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::SeqCst)
