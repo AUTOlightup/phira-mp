@@ -28,16 +28,6 @@ pub enum InternalRoomState {
     },
 }
 
-impl InternalRoomState {
-    pub fn to_client(&self, chart: Option<i32>) -> RoomState {
-        match self {
-            Self::SelectChart => RoomState::SelectChart(chart),
-            Self::WaitForReady { .. } => RoomState::WaitingForReady,
-            Self::Playing { .. } => RoomState::Playing,
-        }
-    }
-}
-
 pub struct Room {
     pub id: RoomId,
     pub host: RwLock<Weak<User>>,
@@ -162,10 +152,6 @@ impl Room {
 
     // 其他方法...
 
-}
-
-
-
     pub fn is_live(&self) -> bool {
         self.live.load(Ordering::SeqCst)
     }
@@ -176,13 +162,6 @@ impl Room {
 
     pub fn is_cycle(&self) -> bool {
         self.cycle.load(Ordering::SeqCst)
-    }
-
-    pub async fn client_room_state(&self) -> RoomState {
-        self.state
-            .read()
-            .await
-            .to_client(self.chart.read().await.as_ref().map(|it| it.id))
     }
 
     pub async fn client_state(&self, user: &User) -> ClientRoomState {
@@ -326,6 +305,7 @@ impl Room {
                 .store(f32::NEG_INFINITY.to_bits(), Ordering::SeqCst);
         }
     }
+}
 
     pub async fn check_all_ready(&self) {
         let guard = self.state.read().await;
